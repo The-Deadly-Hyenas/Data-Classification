@@ -48,7 +48,7 @@ classifiers = [
 parameters = [
     # knn
     {
-        'n_neighbors': [3, 15, 25],
+        'n_neighbors': [3, 15, 25, 30],
         'weights': ['uniform', 'distance'],
         'leaf_size': [10, 15, 20, 30]
     },
@@ -134,7 +134,7 @@ for name, clf, params in zip(names, classifiers, parameters):
     # grid search the parameters for a given classifier
     gs_cv = GridSearchCV(clf, params, cv=cv, n_jobs=6)
     gs_cv.fit(X, y)
-    score = gs_cv.score(X, y)
+    score = gs_cv.best_score_
 
     # save best model parameters to results file
     with open('results.txt', mode="a+") as f:
