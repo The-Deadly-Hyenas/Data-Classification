@@ -1,7 +1,7 @@
 """
 Starting script to try out different classifiers.
 
-Currently, not doing some special feature selection, splitting or trying out hyperparameter
+Trying out different classifiers and grid searching hyperparameters
 """
 
 import pandas as pd
@@ -14,11 +14,17 @@ from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 from sklearn.model_selection import cross_val_score, KFold
+from sklearn.model_selection import GridSearchCV
+import json
+import time
 
+# get start time
+t0 = time.time()
+
+# names of the used classifiers
 names = [
     "Nearest Neighbors",
-    "Linear SVM",
-    "RBF SVM",
+    "SVM",
     "Decision Tree",
     "Random Forest",
     "Neural Net",
@@ -28,21 +34,80 @@ names = [
 ]
 
 classifiers = [
-    KNeighborsClassifier(3),
-    SVC(kernel="linear", C=0.025),
-    SVC(gamma=2, C=1),
-    DecisionTreeClassifier(max_depth=5),
-    RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1),
-    MLPClassifier(alpha=1, max_iter=1000),
+    KNeighborsClassifier(),
+    SVC(),
+    DecisionTreeClassifier(),
+    RandomForestClassifier(),
+    MLPClassifier(),
     AdaBoostClassifier(),
     GaussianNB(),
     QuadraticDiscriminantAnalysis(),
 ]
 
-# load the data
-df = pd.read_pickle("../training_dataset_task3/task_3_training_5bdf9a9ed30b9a66_749fa46_pandas.pkl")
+# grid search parameters for the different classifiers
+parameters = [
+    # knn
+    {
+        'n_neighbors': [3, 15, 25],
+        'weights': ['uniform', 'distance'],
+        'leaf_size': [10, 15, 20, 30]
+    },
+    # svm
+    {
+        'C': [0.5, 1],
+        'kernel': ['poly', 'rbf'],
+        'degree': [3, 5, 6],
+        'gamma': ['scale', 'auto']
+    },
+    # Decision Tree
+    {
+        'max_depth': [3, 5, 7, 15],
+        'criterion': ['gini', 'entropy'],
+        'splitter': ['best', 'random'],
+        'max_features': ['auto', 'sqrt', 'log2']
+    },
+    # RandomForestClassifier
+    {
+        'bootstrap': [True, False],
+        'max_depth': [90, 100, None],
+        'max_features': ['auto', 'sqrt'],
+        'min_samples_leaf': [1, 2, 4],
+        'min_samples_split': [2, 5, 10],
+        'n_estimators': [200, 800]
+    },
+    # MLPClassifier
+    {
+        'hidden_layer_sizes': [(10, 30, 10), (20,)],
+        'activation': ['tanh', 'relu'],
+        'solver': ['sgd', 'adam'],
+        'alpha': [0.0001, 0.05],
+        'learning_rate': ['constant', 'adaptive'],
+    },
+    #  AdaBoostClassifier
+    {
+        'base_estimator__max_depth': [i for i in range(2, 11, 2)],
+        'base_estimator__min_samples_leaf': [5, 10],
+        'n_estimators': [10, 50, 250, 1000],
+        'learning_rate': [0.01, 0.1]
+    },
+    # GaussianNB
+    {
+        'priors': [None],
+        'var_smoothing': [1e-9]
+    },
+    # QuadraticDiscriminantAnalysis
+    {
+        'priors': [None],
+        'reg_param': [0.0],
+    }
 
-# get only the low and mid level features
+]
+
+# load the data and reset index of dataframe
+df: pd.DataFrame = pd.read_pickle(
+    "../training_dataset_task3/task_3_training_5bdf9a9ed30b9a66_749fa46_pandas.pkl").reset_index()
+
+# get only the low and mid level features + segment_id
 X = df.loc[:, "essentia_dissonance_mean":"mirtoolbox_roughness_pct_90"]
 # target value
 y = df["quadrant"]
@@ -50,29 +115,36 @@ y = df["quadrant"]
 # preprocess dataset
 X = StandardScaler().fit_transform(X)
 
-# k fold for cross validation
-kf = KFold(n_splits=10)
+# split the data according to segment_id
+# store the splits as tuple (train indices, test_indices)
+# for example the training indices are the first 26 segments
+# and the test_indices is the last segment 27
+cv = []
+
+for i in range(27):
+    train_indices = df[df["segment_id"] != i].index.to_list()
+    test_indices = df[df["segment_id"] == i].index.to_list()
+    cv.append((train_indices, test_indices))
 
 # header for result output
 print(f"{'Classifier' : <20} {'score' : >5}")
 
 # iterate over classifiers
-for name, clf in zip(names, classifiers):
-    # get cross_val_scores
-    score = cross_val_score(estimator=clf, X=X, y=y, cv=kf)
+for name, clf, params in zip(names, classifiers, parameters):
+    # grid search the parameters for a given classifier
+    gs_cv = GridSearchCV(clf, params, cv=cv, n_jobs=6)
+    gs_cv.fit(X, y)
+    score = gs_cv.score(X, y)
 
-    # print classifier and the mean cross_val_score
-    print(f"{name:<20} {score.mean(): >5}")
+    # save best model parameters to results file
+    with open('results.txt', mode="a+") as f:
+        f.write(name + "\n")
+        f.write("score: " + str(score) + "\n")
+        f.write(json.dumps(gs_cv.best_params_) + "\n\n")
 
-# results:
+    print(f"{name:<20} {score: >5}")
+    print(gs_cv.best_params_)
 
-# Classifier           score
-# Nearest Neighbors    0.428187006818356
-# Linear SVM           0.43955795602543474
-# RBF SVM              0.31957021374396694
-# Decision Tree        0.4014211292423198
-# Random Forest        0.40320041369800047
-# Neural Net           0.40275990193825173
-# AdaBoost             0.39660805944993494
-# Naive Bayes          0.44830307209070713
-# QDA                  0.4180897111775071
+# print time it took to run script
+t1 = time.time()
+print(t1 - t0)
