@@ -130,4 +130,6 @@ dmypy.json
 
 # pycharm
 .idea
-.ipynb_checkpoints
+
+# other
+.DS_Store
