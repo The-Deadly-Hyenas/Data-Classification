@@ -24,7 +24,7 @@ generate_data = True
 if generate_data:
 
     trainset_path = list(pathlib.Path(".").glob("*high*"))
-    if not trainset_path:
+    if False and not trainset_path:
 
         training_data = X.copy()
         model_paths = [path for path in pathlib.Path("../patrick/models").iterdir() if path.is_file()]
@@ -44,36 +44,51 @@ if generate_data:
 # add segment_id to training data for doing the cross validation splits
 X["segment_id"] = df["segment_id"]
 
+# remove segment_id 26
+seg_26_indices = (X["segment_id"] == 26)
+X_test = X[seg_26_indices].drop(["segment_id"], axis=1)
+y_test = y[seg_26_indices]
+
+X_train = X.drop(X[seg_26_indices].index, axis=0).reset_index(drop=True)
+y_train = y.drop(X[seg_26_indices].index, axis=0)
+
 # https://imbalanced-learn.org/stable/combine.html
 smote_enn = SMOTEENN(random_state=0)
 X_resampled, y_resampled = smote_enn.fit_resample(X, y)
 
 # split the data according to segment_id
 # store the splits as tuple (train indices, test_indices)
-# 2 segments for test, the rest for training
+# 2 segments for test, the rest for training (not including segment 26)
 cv = []
 
-for i in range(26):
+for i in range(24):
     train_indices = X_resampled[~X_resampled["segment_id"].isin([i, i + 1])].index.to_list()
     test_indices = X_resampled[X_resampled["segment_id"].isin([i, i + 1])].index.to_list()
     cv.append((train_indices, test_indices))
 
 # remove the segment_id as we don't want it in the training data
-X_resampled.drop(["segment_id"], axis=1)
+X_resampled = X_resampled.drop(["segment_id"], axis=1)
 
 # do a grid search for best params
 params = {"n_neighbors": [81],
           "weights": ["distance"],
           "algorithm": ["auto"]}
 
-gs_cv = GridSearchCV(KNeighborsClassifier(), params, cv=cv, n_jobs=6)
+gs_cv = GridSearchCV(KNeighborsClassifier(), params, cv=cv, n_jobs=-1)
 gs_cv.fit(X_resampled, y_resampled)
 
 best_params = gs_cv.best_params_
 
-print(gs_cv.best_params_)
+print("Best params:")
+print(best_params)
+print("Best score:")
 print(gs_cv.best_score_)
 
-# current best model and score
-# {'algorithm': 'auto', 'n_neighbors': 81, 'weights': 'distance'}
-# 0.5202006852186759
+# get score on hold out test set
+X_test = X[X["segment_id"] == 26].drop(["segment_id"], axis=1)
+y_test = y[X["segment_id"] == 26]
+
+test_score = gs_cv.score(X_test, y_test)
+
+print("Test score:")
+print(test_score)
